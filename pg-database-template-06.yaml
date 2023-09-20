@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Create a DB subnet group and MYSQL Database"
+
+Parameters:
+  PrivateSubnet01:
+    Type: String
+    Description: The subnet for the DB cluster
+  PrivateSubnet02:
+    Type: String
+    Description: The subnet for the DB cluster
+  PrivateSubnet03:
+    Type: String
+    Description: The subnet for the DB cluster
+
+  ProductID:
+    Description: ""
+    Type: String
+    Default: example
+  Environment:
+    Description: ""
+    Type: String
+    Default: dev
+  Role:
+    Description: ""
+    Type: String
+    Default: core
+
+  DatabasePort:
+    Type: String
+    Default: 5432
+  MasterUsername:
+    Type: String
+    Default: "saif"
+  MasterUserPassword:
+    Type: String
+    Default: "saif-pass1word2.com"
+    NoEcho: true
+  DatabaseName:
+    Type: String
+    Default: coredb
+
+Resources:
+  SubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "${AWS::StackName}-DBSubnetGroup"
+      SubnetIds:
+        - !Ref PrivateSubnet01
+        - !Ref PrivateSubnet02
+        - !Ref PrivateSubnet03
+
+  RdsSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: !Sub "${AWS::StackName}-SecurityGroup  - allow access to rds"
+      VpcId:
+        "vpc-0d2f42a0b63b821ce"
+        # Fn::ImportValue:
+        # Fn::Sub: "${NetworkStack}:VPCId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref DatabasePort
+          ToPort: !Ref DatabasePort
+          # GroupId: !Ref DataSourceSecurityGroup
+          CidrIp: 0.0.0.0/0
+          Description: "Allow external connections from gui clients"
+      #   - IpProtocol: tcp
+      #     FromPort: "5432"
+      #     ToPort: "5432"
+      #     SourceSecurityGroupId: !ImportValue
+      #       "Fn::Sub": "${NetworkStack}:FargateContainerSecurityGroup"
+      Tags:
+        - Key: ProductID
+          Value: !Ref ProductID
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Role
+          Value: !Ref Role
+
+  # https://github.com/widdix/aws-cf-templates/blob/1d4540427500c1d70413b33562aa441700323dc7/state/rds-aurora.yaml#L297
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceClass: db.t2.micro
+      Engine: postgres
+      EngineVersion: "12.12"
+      PubliclyAccessible: true
+      MultiAZ: false
+      AllocatedStorage: 10
+      DBSubnetGroupName: !Ref SubnetGroup
+      Port: !Ref DatabasePort
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      DBName: !Ref DatabaseName # database to create when the DB instance is created
+      Tags:
+        - Key: ProductID
+          Value: !Ref ProductID
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Role
+          Value: !Ref Role
+
+  SSMEndpointAddress:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "EndpointAddress"
+      Name: !Sub "/${ProductID}/${Environment}/database/${Role}/EndpointAddress"
+      Value: !GetAtt "DBInstance.Endpoint.Address"
+      Type: String
+
+  # SSMReadEndpointAddress:
+  #   Type: AWS::SSM::Parameter
+  #   Properties:
+  #     Description: "ReadEndpointAddress"
+  #     Name: !Sub "/${ProductID}/${Environment}/database/${Role}/ReadEndpointAddress"
+  #     Value: !GetAtt "DBInstance.ReadEndpoint.Address"
+  #     Type: String
+
+  SSMMasterUsername:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "MasterUsername"
+      Name: !Sub "/${ProductID}/${Environment}/database/${Role}/MasterUsername"
+      Value: !Ref MasterUsername
+      Type: String
+
+  SSMMasterUserPassword:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "MasterUserPassword"
+      Name: !Sub "/${ProductID}/${Environment}/database/${Role}/MasterUserPassword"
+      Value: !Ref MasterUserPassword
+      Type: String
+
+Outputs:
+  ClusterAddress:
+    Value: !GetAtt "DBInstance.Endpoint.Address"
+    Export:
+      Name: !Sub "${AWS::StackName}::ClusterAddress"
+  # ClusterReadAddress:
+  #   Value: !GetAtt "DBInstance.ReadEndpoint.Address"
+  #   Export:
+  #     Name: !Sub "${AWS::StackName}::ClusterReadAddress"
+  DatabasePort:
+    Value: !Ref DatabasePort
+    Export:
+      Name: !Sub "${AWS::StackName}::DatabasePort"
+
+  MasterUsername:
+    Value: !Ref MasterUsername
+    Export:
+      Name: !Sub "${AWS::StackName}::MasterUsername"
+  MasterUserPassword:
+    Value: !Ref MasterUserPassword
+    Export:
+      Name: !Sub "${AWS::StackName}::MasterUserPassword"
+  DatabaseName:
+    Value: !Ref DatabaseName
+    Export:
+      Name: !Sub "${AWS::StackName}::DatabaseName"

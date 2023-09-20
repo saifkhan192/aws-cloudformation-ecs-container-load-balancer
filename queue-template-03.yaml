@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Template to create a sample queue
+
+Parameters:
+  QueueName:
+    Description: This stack will append fifo to the end of this name.
+    Type: String
+    Default: DemoFifoQueue
+
+Resources:
+  MyFifoQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub "${QueueName}.fifo"
+      FifoQueue: true
+      ContentBasedDeduplication: true # if an SQS queue is the target, you have to set ContentBasesDeduplication: true
+      MessageRetentionPeriod: "345600"
+      ReceiveMessageWaitTimeSeconds: 5
+      VisibilityTimeout: 120
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MyDeadLetterQueue.Arn
+        maxReceiveCount: 2 # Number of times a message will be tried before being dumped to the DLQ
+
+  MyDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub "${QueueName}-deadletter.fifo"
+      FifoQueue: true
+      MessageRetentionPeriod: "345600"
+
+  DeadLetterQueueForBus:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      QueueName: !Sub "${QueueName}-deadletter-bus"
+      MessageRetentionPeriod: "345600"
+
+  EventBridgeSQSPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref MyFifoQueue
+      PolicyDocument:
+        Statement:
+          - Action:
+              - SQS:SendMessage
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Resource:
+              - !GetAtt MyFifoQueue.Arn
+
+Outputs:
+  QueueURL:
+    Description: Queue URL for Fifo queue
+    Value: !Ref MyFifoQueue
+    Export:
+      Name: !Sub "${AWS::StackName}::QueueURL"
+  QueueArn:
+    Value: !GetAtt MyFifoQueue.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}::QueueArn"
+  DeadLetterQueueForBus:
+    Value: !GetAtt DeadLetterQueueForBus.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}::DeadLetterQueueForBus"

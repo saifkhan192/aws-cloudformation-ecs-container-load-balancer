@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: eventBridge/bus/rules
+Parameters:
+  QueueStackName:
+    Type: String
+    Default: queue-example
+Resources:
+  EventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "${AWS::StackName}-bus"
+
+  CatchAllRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Route Events to log group
+      Name: !Sub "${AWS::StackName}-send-all-events-to-cloudwatch"
+      EventBusName: !Ref EventBus
+      EventPattern:
+        source:
+          # - "*"
+          - core.some-error
+          - core.new-user-created
+          - core.user-updated
+      RoleArn: !GetAtt IAMEventsToCloudWatch.Arn
+      Targets:
+        - Id: id-logs-1
+          Arn: !GetAtt CatchAllEventsLogGroup.Arn
+          DeadLetterConfig:
+            Arn:
+              Fn::ImportValue:
+                Fn::Sub: "${QueueStackName}::DeadLetterQueueForBus"
+        - Id: id-sqs-1
+          Arn:
+            Fn::ImportValue:
+              Fn::Sub: "${QueueStackName}::QueueArn"
+          SqsParameters:
+            # MessageGroupId: "$.detail.id"
+            MessageGroupId: "SINGLETON"
+          DeadLetterConfig:
+            Arn:
+              Fn::ImportValue:
+                Fn::Sub: "${QueueStackName}::DeadLetterQueueForBus"
+  CatchAllEventsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/events/${AWS::StackName}"
+      RetentionInDays: 120
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+
+  IAMEventsToCloudWatch:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: EventBridgeToCloudWatchLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - sqs:SendMessage
+                Resource: !GetAtt CatchAllEventsLogGroup.Arn
+
+  LogGroupForEventsPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: EventBridgeToCWLogsPolicy
+      PolicyDocument: !Sub >
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EventBridgetoCWLogsCreateLogStreamPolicy",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "events.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "logs:CreateLogStream"
+              ],
+              "Resource": [
+                "${CatchAllEventsLogGroup.Arn}"
+              ]
+            },
+            {
+              "Sid": "EventBridgetoCWLogsPutLogEventsPolicy",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "events.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "logs:PutLogEvents"
+              ],
+              "Resource": [
+                "${CatchAllEventsLogGroup.Arn}"
+              ],
+              "Condition": {
+                "ArnEquals": {"AWS:SourceArn": "${CatchAllRule.Arn}"}
+              }
+            }
+          ]
+        }
+
+  # Allow EventBridge to invoke SQS
+  EventBridgeToToSqsPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: SQS:SendMessage
+            Resource:
+              Fn::ImportValue:
+                Fn::Sub: "${QueueStackName}::QueueArn"
+      Queues:
+        # - https://sqs.us-east-1.amazonaws.com/990844713352/DemoFifoQueue.fifo
+        - Fn::ImportValue:
+            Fn::Sub: "${QueueStackName}::QueueURL"
+
+Outputs:
+  EventBus:
+    Description: EventBus Arn
+    Value: !Ref EventBus
+    Export:
+      Name: !Sub "${AWS::StackName}::EventBus"

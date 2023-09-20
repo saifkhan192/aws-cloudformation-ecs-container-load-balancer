@@ -1,0 +1,24 @@
+{
+  "name": "express-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon app.js",
+    "start": "node app.js --env production",
+    "worker": "export NODE_ENV=development && node --max-old-space-size=1024 worker.js"
+  },
+  "author": "saifkhan",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.1463.0",
+    "eventemitter2": "^6.4.9",
+    "express": "^4.17.1",
+    "pg": "^8.11.3",
+    "sqs-consumer": "^7.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

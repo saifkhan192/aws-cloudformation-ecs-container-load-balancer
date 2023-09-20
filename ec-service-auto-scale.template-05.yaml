@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Scale task in ecs service
+
+Resources:
+  StartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub ${ AWS::StackName }-lambda
+      Runtime: nodejs16.x
+      Handler: index.handler
+      MemorySize: 128
+      Timeout: 300
+      Environment:
+        Variables:
+          CLUSTER: "core-service-cluster"
+          SERVICE: "core-service-ecs-sevice-app"
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ecs:UpdateService
+                - ecs:DescribeServices
+                - ecs:ListTasks
+                - ecs:DescribeTasks
+              Resource: "*"
+      Events:
+        EventScaleUp:
+          Type: Schedule
+          Properties:
+            Schedule: cron(00 04 * * ? *) # 09 AM (PST) every day morning
+            # Schedule: rate(3 minutes)
+            Input: |
+              {
+                "desiredCount": 2,
+                "scaleUp": true
+              }
+        EventScaleDown:
+          Type: Schedule
+          Properties:
+            Schedule: cron(00 17 * * ? *) # 05 PM every day evening
+            Input: |
+              {
+                "desiredCount": 1,
+                "scaleDown": true
+              }
+      InlineCode: |
+        const AWS = require('aws-sdk')
+        const ecs = new AWS.ECS()
+
+        const { Console } = require("console");
+        const log = new Console({ stdout: process.stdout, stderr: process.stderr }).log;
+        function logIt(message, context) {
+          console.log(message, JSON.stringify(context))
+        }
+
+        function sleep(ms) {
+          return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // handler
+        exports.handler = async (event, context) => {
+          // logIt('event', event);
+          const cluster = process.env.CLUSTER
+          const service = process.env.SERVICE
+          const desiredCount = event.desiredCount || 1
+
+          // update
+          await ecs.updateService({ cluster, service, desiredCount }).promise();
+          logIt("updated:", { cluster, service, desiredCount });
+
+          // wait until service is stable
+          // await ecs.waitFor("servicesStable", { cluster, services: [service] }).promise();
+          // logIt("service is stable", { service });
+
+          await sleep(60*1000);
+
+          // get tasks
+          const tasks = await ecs.listTasks({ cluster, serviceName: service }).promise();
+          logIt('tasks', tasks);
+
+          return { message: "all done" }
+        }
