@@ -2,9 +2,6 @@ const express = require('express');
 const app = express();
 const { sendEventToBus } = require('./util.js');
 
-
-// const ENV_VAR_ONE = process.env.ENV_VAR_ONE;
-
 app.get('/', (req, res) => {
   console.log("route: /")
   res.json({

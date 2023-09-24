@@ -59,4 +59,3 @@ To deploy nodejs express application using Docker engine and multiple AWS serivi
  
  ![appnodejs](./images/2.png)
 
- 

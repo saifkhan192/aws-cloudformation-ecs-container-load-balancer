@@ -16,9 +16,6 @@ Parameters:
   EcrRepository:
     Type: String
     Default: core-deployment-ecr-repo
-  ContainerName:
-    Type: String
-    Default: core-app
   QueueStackName:
     Type: String
     Default: queue-example
@@ -28,6 +25,14 @@ Parameters:
   WorkerDesiredCount:
     Type: Number
     Default: 1
+  CreateELB:
+    Type: String
+    Default: "no"
+Conditions:
+  CreateELBCondition: !Equals
+    - !Ref CreateELB
+    - yes
+
 Resources:
   # It hosts a group of ecs tasks
   Cluster:
@@ -134,9 +139,18 @@ Resources:
                 "",
               ],
             ]
-          EntryPoint: ["npm", "run", "start"]
+          # EntryPoint: ["npm", "run", "start"]
+          EntryPoint: ["npm", "run", "start:ts"]
           PortMappings:
             - ContainerPort: 80
+          # HealthCheck:
+          #   Command:
+          #     - CMD-SHELL
+          #     - curl -s http://localhost:80/health
+          #   Interval: 5
+          #   Retries: 3
+          #   StartPeriod: 10
+          #   Timeout: 2
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -148,10 +162,18 @@ Resources:
               Value: !Ref "AWS::Region"
             - Name: PORT
               Value: 80
-            - Name: ENV_VAR_ONE
-              Value: "abc"
+            - Name: NODE_ENV
+              Value: "production"
             - Name: EVENT_BUS_NAME
               Value: "core-events-bus"
+            - Name: POSTGRES_DB_HOST
+              Value: "{{resolve:ssm:/example/dev/database/core/EndpointAddress}}"
+            - Name: POSTGRES_DB_USERNAME
+              Value: "{{resolve:ssm:/example/dev/database/core/MasterUsername}}"
+            - Name: POSTGRES_DB_PASSWORD
+              Value: "{{resolve:ssm:/example/dev/database/core/MasterUserPassword}}"
+            - Name: POSTGRES_DB_NAME
+              Value: "{{resolve:ssm:/example/dev/database/core/DatabaseName}}"
       RequiresCompatibilities:
         - EC2
         - FARGATE
@@ -180,9 +202,19 @@ Resources:
                 "",
               ],
             ]
-          EntryPoint: ["npm", "run", "worker"]
-          PortMappings:
-            - ContainerPort: 80
+          # EntryPoint: ["npm", "run", "worker"]
+          EntryPoint: ["npm", "run", "worker:ts"]
+          # PortMappings:
+          # - ContainerPort: 80
+          # HealthCheck:
+          #   Command:
+          #     - CMD-SHELL
+          #     - echo 'dummy healthcheck' || exit 1
+          #   Interval: 5
+          #   Retries: 3
+          #   StartPeriod: 10
+          #   Timeout: 2
+
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -194,10 +226,18 @@ Resources:
               Value: !Ref "AWS::Region"
             - Name: PORT
               Value: 80
-            - Name: ENV_VAR_ONE
-              Value: "abc"
+            - Name: NODE_ENV
+              Value: "production"
             - Name: EVENT_BUS_NAME
               Value: "core-events-bus"
+            - Name: POSTGRES_DB_HOST
+              Value: "{{resolve:ssm:/example/dev/database/core/EndpointAddress}}"
+            - Name: POSTGRES_DB_USERNAME
+              Value: "{{resolve:ssm:/example/dev/database/core/MasterUsername}}"
+            - Name: POSTGRES_DB_PASSWORD
+              Value: "{{resolve:ssm:/example/dev/database/core/MasterUserPassword}}"
+            - Name: POSTGRES_DB_NAME
+              Value: "{{resolve:ssm:/example/dev/database/core/DatabaseName}}"
       RequiresCompatibilities:
         - EC2
         - FARGATE
@@ -205,17 +245,25 @@ Resources:
   # ECS is a fully managed container orchestration service that helps you easily
   # deploy, manage, and scale containerized applications
   # If one of the tasks fails, the ECS service scheduler launches another instance of task definition to replace it
+
+  # The default values of 200 and 100 mean that for a service of size of 6 tasks, during the deployment there will be 12 tasks running at one point.
+  # This seems too much for the container instances to accommodate.
+  # A proposed solution is to change the values to 150 and 50, resulting in total of 6 tasks running during deployment (3 new and 3 old) until deployment finishes.
+
+  # If a task is run manually, and not as part of a service, the task will continue its lifecycle regardless of its health status.
+  # For tasks that are part of a service, if the task reports as unhealthy then the task will be stopped and the service scheduler will replace it.
+
   Service:
     Type: AWS::ECS::Service
-    DependsOn:
-      - LoadBalancerListener
+    # DependsOn:
+      # - LoadBalancerListener
     Properties:
       ServiceName: !Sub "${AWS::StackName}-ecs-sevice-app"
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref AppDesiredCount
       # This may need to be adjusted if the container takes a while to start up
-      HealthCheckGracePeriodSeconds: 30
+      # HealthCheckGracePeriodSeconds: 30
       LaunchType: FARGATE # aws will take cre of all the hardware and launching of task
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -227,11 +275,23 @@ Resources:
             - !Ref Subnet2ID
           SecurityGroups:
             - !GetAtt ContainerSecurityGroup.GroupId # allow ingress on port 80
-      LoadBalancers:
-        - TargetGroupArn: !Ref TargetGroup
-          ContainerPort: 80
-          # service will look up all TaskDefinitions with this name and bind with the service
-          ContainerName: demo-app
+      # LoadBalancers:
+      #   - TargetGroupArn: !Ref TargetGroup
+      #     ContainerPort: 80
+      #     # service will look up all TaskDefinitions with this name and bind with the service
+      #     ContainerName: demo-app
+      # LoadBalancers:
+      #   - TargetGroupArn: !Ref TargetGroup
+      #     ContainerPort: 80
+      #     # service will look up all TaskDefinitions with this name and bind with the service
+      #     ContainerName: demo-app
+      # LoadBalancers: !If
+      #   - CreateELBCondition
+      #   - - TargetGroupArn: !Ref TargetGroup
+      #       ContainerPort: 80
+      #       ContainerName: demo-app
+      #   - !Ref "AWS::NoValue"
+      EnableExecuteCommand: true
       Tags:
         - Key: Name
           Value: EC2-Demo Service
@@ -250,32 +310,35 @@ Resources:
           Subnets:
             - !Ref Subnet1ID
             - !Ref Subnet2ID
+      EnableExecuteCommand: true
       Tags:
         - Key: Name
           Value: EC2-Demo Worker
 
-  LoadBalancerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: !Sub "${AWS::StackName}-load-balancer-sg"
-      GroupDescription: Security group for load balancer
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
+  # LoadBalancerSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Condition: CreateELBCondition
+  #   Properties:
+  #     GroupName: !Sub "${AWS::StackName}-load-balancer-sg"
+  #     GroupDescription: Security group for load balancer
+  #     SecurityGroupIngress:
+  #       - IpProtocol: tcp
+  #         FromPort: 80
+  #         ToPort: 80
+  #         CidrIp: 0.0.0.0/0
 
   # Layer 7 load balancer, operating at HTTP level
   # can route based on headers, method, path etc
-  LoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Name: !Sub "${AWS::StackName}-load-balancer"
-      Subnets:
-        - !Ref Subnet1ID
-        - !Ref Subnet2ID
-      SecurityGroups:
-        - !GetAtt LoadBalancerSecurityGroup.GroupId
+  # LoadBalancer:
+  #   Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+  #   Condition: CreateELBCondition
+  #   Properties:
+  #     Name: !Sub "${AWS::StackName}-load-balancer"
+  #     Subnets:
+  #       - !Ref Subnet1ID
+  #       - !Ref Subnet2ID
+  #     SecurityGroups:
+  #       - !GetAtt LoadBalancerSecurityGroup.GroupId
 
   # DNSRecord:
   #   Type: AWS::Route53::RecordSet
@@ -288,21 +351,23 @@ Resources:
   #       HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
 
   # listen for traffic on specific protocol and port
-  LoadBalancerListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref LoadBalancer
-      Port: 80
-      Protocol: HTTP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref TargetGroup
-      # Certificates:
-      #   - CertificateArn: "arn:aws:acm:us-east-1:990844713352:certificate/62a9c067-8b96-481d-8a2b-4cef18cb538e"
+  # LoadBalancerListener:
+  #   Type: AWS::ElasticLoadBalancingV2::Listener
+  #   Condition: CreateELBCondition
+  #   Properties:
+  #     LoadBalancerArn: !Ref LoadBalancer
+  #     Port: 80
+  #     Protocol: HTTP
+  #     DefaultActions:
+  #       - Type: forward
+  #         TargetGroupArn: !Ref TargetGroup
+  #     # Certificates:
+  #     #   - CertificateArn: "arn:aws:acm:us-east-1:990844713352:certificate/62a9c067-8b96-481d-8a2b-4cef18cb538e"
 
   # provides monitoring, health check settings, routing strategies
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    # Condition: CreateELBCondition
     Properties:
       TargetType: ip
       Name: !Sub "${AWS::StackName}-load-balancer-tg"
@@ -311,7 +376,7 @@ Resources:
       VpcId: !Ref VPCID
       HealthCheckIntervalSeconds: 10
       # will look for a 200 status code by default unless specified otherwise
-      HealthCheckPath: "/"
+      HealthCheckPath: "/health"
       HealthCheckTimeoutSeconds: 5
       UnhealthyThresholdCount: 2
       HealthyThresholdCount: 2
@@ -335,8 +400,7 @@ Outputs:
       Ref: Cluster
     Export:
       Name: !Sub "${AWS::StackName}::ClusterName"
-  LoadBalancerUrl2:
-    Description: The URL of the ALB
-    Value: !GetAtt LoadBalancer.DNSName
-  aa2:
-    Value: !Ref ContainerName
+  # LoadBalancerUrl2:
+  #   Description: The URL of the ALB
+  #   Value: !GetAtt LoadBalancer.DNSName
+  #   Condition: CreateELBCondition

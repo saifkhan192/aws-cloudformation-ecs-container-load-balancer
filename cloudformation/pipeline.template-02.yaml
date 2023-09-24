@@ -17,13 +17,8 @@ Parameters:
   ServiceStackName:
     Description: Name of the service stack
     Type: String
-    Default: core-service
-  ImageDefinitionFileName:
-    Description: Name of imagedefinitions output file, comming from buildspecs.yml
-    Type: String
-    Default: app-image.json or worker-image.json
-  TaskName:
-    Type: String
+    Default: core-service3
+
 Resources:
   ArtifactStorage:
     Type: "AWS::S3::Bucket"
@@ -83,16 +78,13 @@ Resources:
         #This specifies what docker image and how much resources to give it to run the build.
         Type: LINUX_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/docker:1.12.1
+        Image: aws/codebuild/docker:18.09.0
         EnvironmentVariables:
           #We can put anything we want here and these will be set as environment variables when the build runs.
           #We're leveraging this to point to the Docker image repository we created earlier.
           - Name: AWS_ACCOUNT_ID
             Value: !Sub ${AWS::AccountId}
-          - Name: ECR_REPO
-            Value: !Ref DockerRepo
-          - Name: TASK_NAME
-            Value: !Ref TaskName
+
           - Name: DOCKER_IMAGE_URL
             Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DockerRepo}"
       Artifacts:
@@ -198,7 +190,3 @@ Resources:
       TargetAction: Source
       TargetPipelineVersion: !GetAtt Pipeline.Version
       RegisterWithThirdParty: true
-
-Outputs:
-  aaw:
-    Value: !Ref ImageDefinitionFileName

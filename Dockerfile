@@ -1,19 +1,35 @@
 
-FROM public.ecr.aws/docker/library/node:18-alpine
+# FROM public.ecr.aws/docker/library/node:18-alpine
 
-ENV NODE_ENV=production
+# ENV NODE_ENV=production
 
-WORKDIR /usr/src/app
+# WORKDIR /usr/src/app
 
+# COPY package*.json ./
+
+# RUN npm install
+# # RUN npm ci --only=production
+
+# COPY . .
+
+
+# generate node_modules + source code + dev packages
+FROM "public.ecr.aws/docker/library/node:18-alpine" AS build
+WORKDIR /app
 COPY package*.json ./
-
 RUN npm install
-# RUN npm ci --only=production
-
 COPY . .
-
+RUN npm run build
 # RUN npm test
+# dist directory is generated
+
+FROM public.ecr.aws/docker/library/node:18-alpine
+WORKDIR /app
+COPY --from=build /app/dist ./dist
+COPY package*.json ./
+RUN npm install --production
 
 EXPOSE 3000
 
-ENTRYPOINT ["node", "app.js"]
+# this will be replaced for worker or web server
+ENTRYPOINT ["node", "server.js"]

@@ -134,6 +134,14 @@ Resources:
       Value: !Ref MasterUserPassword
       Type: String
 
+  SSMDatabaseName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: "DatabaseName"
+      Name: !Sub "/${ProductID}/${Environment}/database/${Role}/DatabaseName"
+      Value: !Ref DatabaseName
+      Type: String
+
 Outputs:
   ClusterAddress:
     Value: !GetAtt "DBInstance.Endpoint.Address"
