@@ -1,4 +1,4 @@
-# CI/CD Pipeline on AWS environment with dockerized express js app 
+# CI/CD Pipeline on AWS environment with dockerized express js/ts app and a SQS queue worker
 
 ## Tools
 
@@ -14,6 +14,8 @@
   + Clutser 
   + Service
   + Task
+  + Service Connect
+  + AWS Cloud Map (or Namespaces)
 * AWS Elastic Load Balancer (ELB)
   
 ## Project 
@@ -22,7 +24,9 @@ To deploy nodejs express application using Docker engine and multiple AWS serivi
 
 ## Files 
 
-+ [app.js](./app.js "app.js") is the express app entry point
++ [cloudformation/pg-database-template-06.yaml](./cloudformation/pg-database-template-06.yaml "cloudformation/pg-database-template-06.yaml") contains the cloudformation template for RDS Postgres DB that exports the credencials to SSM Parameters as well
++ [cloudformation/pipeline.template-02.yaml](./cloudformation/pipeline.template-02.yaml "cloudformation/pipeline.template-02.yaml") contains the cloudformation template for AWS CI/CD pipeline
++ [ts-express-app/server.js](./ts-express-app/server.ts "ts-express-app/server.ts") is the express app entry point
 + [Dockerfile](./Dockerfile "Dockerfile") contains all the commands to assemble an image
 + [buildspec.yml](./buildspec.yml "buildspec.yml") is collection of build commands and related settings, in YAML format, that CodeBuild uses to run a build
  

@@ -4,10 +4,10 @@
   "description": "",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon ./js-express-app/server.js",
     "start": "node ./js-express-app/server.js --env production",
     "worker": "export NODE_ENV=development && node --max-old-space-size=1024 ./js-express-app/worker.js",
 
+    "dev": "nodemon --config nodemon.json ts-express-app/server.ts",
     "prebuild": "tslint -c tslint.json -p tsconfig.json --fix",
     "build": "tsc",
     "prestart": "npm run build",

@@ -1,6 +1,6 @@
 createService:
 	aws cloudformation create-stack \
-	--stack-name core-service3 \
+	--stack-name core-service \
 	--template-body file://./cloudformation/service.template-01.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
@@ -10,7 +10,7 @@ createService:
 
 updateService:
 	aws cloudformation update-stack \
-	--stack-name core-service3 \
+	--stack-name core-service \
 	--template-body file://./cloudformation/service.template-01.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
@@ -19,39 +19,44 @@ updateService:
 	  ParameterKey=VPCID,ParameterValue=vpc-0d2f42a0b63b821ce
 
 
-createPipelineCore:
+createPipeline:
 	aws cloudformation create-stack \
-	--stack-name core-deployment \
+	--stack-name core-pipeline \
 	--template-body file://./cloudformation/pipeline.template-02.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
-	  ParameterKey=RepoToken,ParameterValue=${REPO_TOKEN}
-updatePipelineCore:
-	aws cloudformation update-stack \
-	--stack-name core-deployment \
-	--template-body file://./cloudformation/pipeline.template-02.yaml \
-	--capabilities CAPABILITY_NAMED_IAM \
-	--parameters \
+	  ParameterKey=ServiceStackName,ParameterValue=core-service \
 	  ParameterKey=RepoToken,ParameterValue=${REPO_TOKEN}
 
-createPipelineWorker:
-	aws cloudformation create-stack \
-	--stack-name worker-stack \
-	--template-body file://./cloudformation/pipeline.template-02.yaml \
-	--capabilities CAPABILITY_NAMED_IAM \
-	--parameters \
-	  ParameterKey=RepoToken,ParameterValue=${REPO_TOKEN}
-
-updatePipelineWorker:
+updatePipeline:
 	aws cloudformation update-stack \
-	--stack-name worker-stack \
+	--stack-name core-pipeline \
 	--template-body file://./cloudformation/pipeline.template-02.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
+	  ParameterKey=ServiceStackName,ParameterValue=core-service \
 	  ParameterKey=RepoToken,ParameterValue=${REPO_TOKEN}
 
 listTasks:
-	aws ecs list-tasks
+	# aws ecs list-tasks
+	# aws ecs describe-services --cluster core-service-cluster --services core-service-ecs-sevice-app
+	# aws ecs list-tasks --cluster core-service-cluster
+	aws ecs describe-tasks --cluster core-service-cluster --tasks 7d4ff433621b4ea1908ad246437ad7ca
+
+
+sshApp:
+	aws ecs execute-command --cluster core-service-cluster \
+    --task c69cd070b6734d80807ff0f0a490d12b \
+    --container demo-app \
+    --interactive \
+    --command "/bin/sh"
+
+sshWorker:
+	aws ecs execute-command --cluster core-service-cluster \
+    --task 9af3f0ad4f3545a39838db88a8aad792 \
+    --container demo-worker \
+    --interactive \
+    --command "/bin/sh"
 
 viewTask:
 	aws ecs describe-task-definition --task-definition deployment-example-task:7

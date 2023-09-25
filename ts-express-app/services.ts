@@ -1,23 +1,26 @@
 import axios from 'axios';
 
-export const testService1 = async (url: any) => {
-  let data;
-  let status;
+export const callService = async (url: any): Promise<any> => {
+  // url = 'https://jsonplaceholder.typicode.com/todos/1';
+  let data = null;
+  let status = 0;
   try {
-    // const response = await axios.get('http://localhost:3000/health');
-    const response = await axios.get(url);
+    const response = await axios.request({
+      method: 'GET',
+      url,
+      timeout: 4000,
+      // validateStatus: () => true,
+    });
     data = response.data;
     status = response.status;
     console.log(JSON.stringify(data));
-    console.log('response status is: ', status);
+    console.log('status:', status);
     return data;
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.log('error message: ', error.message);
-    } else {
-      console.log('unexpected error: ', error);
-    }
     data = error.message;
+    status = error?.response?.status || -1;
+    console.log('status:', status);
+    console.log('axios:error: ', data);
   }
   return {
     status,

@@ -3,23 +3,43 @@ import express = require('express');
 import { establishDatabaseConnection, createDatabaseConnection } from './db';
 import { User } from './entity/user';
 import { sendEventToBus } from './util';
-import { testService1 } from './services';
-// create and setup express app
+import { callService } from './services';
+
 const app = express();
 app.use(express.json());
 
 app.get('/', async (req: Request, res: Response) => {
-  res.json({ welcome: true, host: process.env.HOSTNAME });
+  res.json({ welcome: true, host: process.env.HOSTNAME, SERVICE_NAME: process.env.SERVICE_NAME });
 });
 
 app.get('/health', async (req: Request, res: Response) => {
-  res.json({ healthy: true, host: process.env.HOSTNAME });
+  res.json({ healthy: true, host: process.env.HOSTNAME, SERVICE_NAME: process.env.SERVICE_NAME });
 });
 
-app.get('/testService1', async (req: Request, res: Response) => {
-  let url = req.query.url || 'http://localhost:3000/health';
-  const resp = await testService1(url);
-  res.json({ resp, host: process.env.HOSTNAME });
+// test-communication
+app.get('/test', async (req: Request, res: Response) => {
+  let getCustomResponse = Promise.resolve({ status: 0, data: null });
+  if (req.query.customUrl) {
+    getCustomResponse = callService(req.query.customUrl);
+  }
+
+  const [customResponse, bffResponse, coreResponse] = await Promise.allSettled([
+    getCustomResponse,
+    await callService(process.env.URL_API_BFF),
+    await callService(process.env.URL_API_CORE),
+  ]);
+
+  res.json({
+    host: process.env.HOSTNAME,
+    SERVICE_NAME: process.env.SERVICE_NAME,
+
+    URL_API_BFF: process.env.URL_API_BFF,
+    URL_API_CORE: process.env.URL_API_CORE,
+
+    customResponse,
+    bffResponse,
+    coreResponse,
+  });
 });
 
 app.get('/send-event', async (req: Request, res: Response) => {

@@ -17,7 +17,7 @@ Parameters:
   ServiceStackName:
     Description: Name of the service stack
     Type: String
-    Default: core-service3
+    Default: core-service
 
 Resources:
   ArtifactStorage:
@@ -97,7 +97,7 @@ Resources:
     # DependsOn:
     # - BuildProject
     Properties:
-      Name: !Sub "${AWS::StackName}-code-pipeline"
+      Name: !Sub "${AWS::StackName}-pipeline"
       ArtifactStore:
         Type: "S3"
         Location: !Ref ArtifactStorage
@@ -179,7 +179,7 @@ Resources:
   CodePipelineWebhook:
     Type: AWS::CodePipeline::Webhook
     Properties:
-      Name: !Sub "${AWS::StackName}-code-pipeline-webhook"
+      Name: !Sub "${AWS::StackName}-pipeline-webhook"
       Authentication: GITHUB_HMAC
       AuthenticationConfiguration:
         SecretToken: !Ref RepoToken

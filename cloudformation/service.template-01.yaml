@@ -6,6 +6,31 @@ Description: Deploy container to ECS service
 # Or alternately, have a separate template that sets up core infrastructure like the repository,
 # upload builds to that and then have a separate template to run that sets up the Services themselves.
 
+
+
+# ECS is a fully managed container orchestration service that helps you easily
+# deploy, manage, and scale containerized applications
+# If one of the tasks fails, the ECS service scheduler launches another instance of task definition to replace it
+
+# The default values of 200 and 100 mean that for a service of size of 6 tasks, during the deployment there will be 12 tasks running at one point.
+# This seems too much for the container instances to accommodate.
+# A proposed solution is to change the values to 150 and 50, resulting in total of 6 tasks running during deployment (3 new and 3 old) until deployment finishes.
+
+# If a task is run manually, and not as part of a service, the task will continue its lifecycle regardless of its health status.
+# For tasks that are part of a service, if the task reports as unhealthy then the task will be stopped and the service scheduler will replace it.
+
+
+# Assuming you're looking for a routing solution (a.k.a. service discovery); there's nothing anything build into ECS. 
+# You can go for the AWS solution which is to use Application Load Balancers (ALBs) that are nicely integrated with dynamic port binding 
+# in your ECS cluster. The basic idea is simple: a request from service A to service B goes 
+# first to a loadbalancer (ALB) that routes the request to a target group that contains all ports of running/healthy instances of service B.
+
+
+# Service Connect on the other hand introduces a sidecar "proxy" container that that intercepts outgoing connections and routes them to the correct 
+# destinations. The sidecar uses API calls to Cloud Map to look up an IP address of a healthy instance of the service in real time, 
+# rather than relying on DNS entries, which may be stale
+
+
 Parameters:
   Subnet1ID:
     Type: String
@@ -28,6 +53,26 @@ Parameters:
   CreateELB:
     Type: String
     Default: "no"
+  ContainerPort:
+    Type: Number
+    Default: 80
+
+  # apk add curl
+  # curl backend-api-bff
+  # curl backend-api-core
+  ServiceNameBFF:
+    Description: Descriptive service name (e.g. backend, frontend)
+    Type: String
+    Default: backend-api-bff
+  ServiceNameCore:
+    Description: Descriptive service name (e.g. backend, frontend)
+    Type: String
+    Default: backend-api-core
+  NameSpaceName:
+    Description: just a common namespace
+    Type: String
+    Default: backend-namespace
+
 Conditions:
   CreateELBCondition: !Equals
     - !Ref CreateELB
@@ -39,7 +84,8 @@ Resources:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Sub "${AWS::StackName}-cluster"
-
+      ServiceConnectDefaults:
+        Namespace: !Ref NameSpaceName #Tasks that run in a namespace can use short names to connect to services in the namespace
   LogGroupApp:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -67,6 +113,19 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      # Policies:
+      #   - PolicyName: ecs-access-policy
+      #     PolicyDocument:
+      #       Version: "2012-10-17"
+      #       Statement:
+      #         - Effect: Allow
+      #           Action:
+      #             - ecs:RunTask
+      #             - ecs:ExecuteCommand
+      #             - ecs:DescribeTasks
+      #             - ecs:ListServices
+      #           Resource:
+      #             - "*"
 
   # allow traffic to server and out of service
   ContainerSecurityGroup:
@@ -80,6 +139,10 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
 
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0    # We don't know the SSM IP addresses ie: for aws ecs execute-command
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -92,6 +155,8 @@ Resources:
                 - ecs-tasks.amazonaws.com
             Action:
               - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
         - PolicyName: AllowSQSReceiveMessage
           PolicyDocument:
@@ -110,17 +175,57 @@ Resources:
                   - events:PutEvents
                 Resource:
                   - !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:event-bus/*"
-              # - Action:
-              #     - ssm:GetParameters
-              #   Effect: Allow
-              #   Resource:
-              #     - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/*"
+
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:ExecuteCommand
+                  - ecs:DescribeTasks
+                  - ecs:ListServices
+                Resource:
+                  - "*"
+
+              - Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: "*"
+
+
+              - Effect: Allow
+                Action:
+                  - 'logs:PutLogEvents'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:DescribeLogGroups'
+                  - 'xray:PutTraceSegments'
+                  - 'xray:PutTelemetryRecords'
+                  - 'xray:GetSamplingRules'
+                  - 'xray:GetSamplingTargets'
+                  - 'xray:GetSamplingStatisticSummaries'
+                  - 'ssm:GetParameters'
+                Resource: '*'
+
+  LogGroupServiceConnect:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "${AWS::StackName}/service-connect"
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+
+
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: demo-app-task
       Cpu: 256
       Memory: 512
+      # ECS uses 4 networking modes. awsvpc, bridge, host and none. None is not relevant here as there is no networking there.
+      # For awsvpc, the container gets its own ENI. Which means that your container will act as a host and the port that you expose will be the port that you serve on.
+      # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-networking.html
       NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt ExecutionRole.Arn
       TaskRoleArn: !Ref TaskRole
@@ -141,23 +246,30 @@ Resources:
             ]
           # EntryPoint: ["npm", "run", "start"]
           EntryPoint: ["npm", "run", "start:ts"]
+          LinuxParameters:
+            InitProcessEnabled: true
+          ReadonlyRootFilesystem: false # allow task definition to use ECS Exec
           PortMappings:
-            - ContainerPort: 80
-          # HealthCheck:
-          #   Command:
-          #     - CMD-SHELL
-          #     - curl -s http://localhost:80/health
-          #   Interval: 5
-          #   Retries: 3
-          #   StartPeriod: 10
-          #   Timeout: 2
+            - ContainerPort: !Ref ContainerPort
+              Name: backend-bff #This parameter only applies to Service Connect
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              # - curl -s http://localhost/health
+              - echo 'dummy healthcheck1' || exit 1
+            Interval: 5
+            Timeout: 3
+            Retries: 3
+            StartPeriod: 10
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-region: !Ref AWS::Region
               awslogs-group: !Ref LogGroupApp
-              awslogs-stream-prefix: ecs
+              awslogs-stream-prefix: !Ref ServiceNameBFF
           Environment:
+            - Name: SERVICE_NAME
+              Value: !Ref ServiceNameBFF
             - Name: AWS_REGION
               Value: !Ref "AWS::Region"
             - Name: PORT
@@ -174,6 +286,10 @@ Resources:
               Value: "{{resolve:ssm:/example/dev/database/core/MasterUserPassword}}"
             - Name: POSTGRES_DB_NAME
               Value: "{{resolve:ssm:/example/dev/database/core/DatabaseName}}"
+            - Name: URL_API_BFF
+              Value: !Sub  "http://${ServiceNameBFF}"
+            - Name: URL_API_CORE
+              Value: !Sub  "http://${ServiceNameCore}"
       RequiresCompatibilities:
         - EC2
         - FARGATE
@@ -187,6 +303,7 @@ Resources:
       NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt ExecutionRole.Arn
       TaskRoleArn: !Ref TaskRole
+
       ContainerDefinitions:
         - Name: demo-worker
           # Image: nginx:1.17.7 # pull image from docker hub
@@ -202,26 +319,32 @@ Resources:
                 "",
               ],
             ]
-          # EntryPoint: ["npm", "run", "worker"]
-          EntryPoint: ["npm", "run", "worker:ts"]
-          # PortMappings:
-          # - ContainerPort: 80
-          # HealthCheck:
-          #   Command:
-          #     - CMD-SHELL
-          #     - echo 'dummy healthcheck' || exit 1
-          #   Interval: 5
-          #   Retries: 3
-          #   StartPeriod: 10
-          #   Timeout: 2
-
+          # EntryPoint: ["npm", "run", "worker:ts"]
+          EntryPoint: ["npm", "run", "start:ts"]
+          LinuxParameters:
+            InitProcessEnabled: true
+          ReadonlyRootFilesystem: false
+          PortMappings:
+          - ContainerPort: !Ref ContainerPort
+            Name: backend-core #This parameter only applies to Service Connect
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              # - curl -s http://localhost/health
+              - echo 'dummy healthcheck2' || exit 1
+            Interval: 5
+            Timeout: 3
+            Retries: 3
+            StartPeriod: 10
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-region: !Ref AWS::Region
               awslogs-group: !Ref LogGroupWorker
-              awslogs-stream-prefix: ecs
+              awslogs-stream-prefix: !Ref ServiceNameCore
           Environment:
+            - Name: SERVICE_NAME
+              Value: !Ref ServiceNameCore
             - Name: AWS_REGION
               Value: !Ref "AWS::Region"
             - Name: PORT
@@ -238,20 +361,13 @@ Resources:
               Value: "{{resolve:ssm:/example/dev/database/core/MasterUserPassword}}"
             - Name: POSTGRES_DB_NAME
               Value: "{{resolve:ssm:/example/dev/database/core/DatabaseName}}"
+            - Name: URL_API_BFF
+              Value: !Sub  "http://${ServiceNameBFF}"
+            - Name: URL_API_CORE
+              Value: !Sub  "http://${ServiceNameCore}"
       RequiresCompatibilities:
         - EC2
         - FARGATE
-
-  # ECS is a fully managed container orchestration service that helps you easily
-  # deploy, manage, and scale containerized applications
-  # If one of the tasks fails, the ECS service scheduler launches another instance of task definition to replace it
-
-  # The default values of 200 and 100 mean that for a service of size of 6 tasks, during the deployment there will be 12 tasks running at one point.
-  # This seems too much for the container instances to accommodate.
-  # A proposed solution is to change the values to 150 and 50, resulting in total of 6 tasks running during deployment (3 new and 3 old) until deployment finishes.
-
-  # If a task is run manually, and not as part of a service, the task will continue its lifecycle regardless of its health status.
-  # For tasks that are part of a service, if the task reports as unhealthy then the task will be stopped and the service scheduler will replace it.
 
   Service:
     Type: AWS::ECS::Service
@@ -280,11 +396,6 @@ Resources:
       #     ContainerPort: 80
       #     # service will look up all TaskDefinitions with this name and bind with the service
       #     ContainerName: demo-app
-      # LoadBalancers:
-      #   - TargetGroupArn: !Ref TargetGroup
-      #     ContainerPort: 80
-      #     # service will look up all TaskDefinitions with this name and bind with the service
-      #     ContainerName: demo-app
       # LoadBalancers: !If
       #   - CreateELBCondition
       #   - - TargetGroupArn: !Ref TargetGroup
@@ -292,6 +403,22 @@ Resources:
       #       ContainerName: demo-app
       #   - !Ref "AWS::NoValue"
       EnableExecuteCommand: true
+      ServiceConnectConfiguration:
+        Enabled: true
+        Namespace: !Ref NameSpaceName
+        Services:
+          - DiscoveryName: !Join ["-", [!Ref ServiceNameBFF, "discovery-name"]] ## Avoid using the same service with Service Discovery in a namespace.
+            PortName: backend-bff
+            ClientAliases:
+              - Port: 80
+                DnsName: !Ref ServiceNameBFF
+            # IngressPortOverride: 8081 # port number for the Service Connect proxy to listen on.
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-region: !Ref AWS::Region
+            awslogs-group: !Ref LogGroupServiceConnect
+            awslogs-stream-prefix: !Ref ServiceNameBFF
       Tags:
         - Key: Name
           Value: EC2-Demo Service
@@ -311,6 +438,22 @@ Resources:
             - !Ref Subnet1ID
             - !Ref Subnet2ID
       EnableExecuteCommand: true
+      ServiceConnectConfiguration:
+        Enabled: true
+        Namespace: !Ref NameSpaceName
+        Services:
+          - DiscoveryName: !Join ["-", [!Ref ServiceNameCore, "discovery-name"]] ## Avoid using the same service with Service Discovery in a namespace.
+            PortName: backend-core
+            ClientAliases:
+              - Port: 80
+                DnsName: !Ref ServiceNameCore
+            # IngressPortOverride: 8080 # port number for the Service Connect proxy to listen on.
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-region: !Ref AWS::Region
+            awslogs-group: !Ref LogGroupServiceConnect
+            awslogs-stream-prefix: !Ref ServiceNameCore
       Tags:
         - Key: Name
           Value: EC2-Demo Worker
@@ -365,21 +508,21 @@ Resources:
   #     #   - CertificateArn: "arn:aws:acm:us-east-1:990844713352:certificate/62a9c067-8b96-481d-8a2b-4cef18cb538e"
 
   # provides monitoring, health check settings, routing strategies
-  TargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    # Condition: CreateELBCondition
-    Properties:
-      TargetType: ip
-      Name: !Sub "${AWS::StackName}-load-balancer-tg"
-      Port: 80
-      Protocol: HTTP
-      VpcId: !Ref VPCID
-      HealthCheckIntervalSeconds: 10
-      # will look for a 200 status code by default unless specified otherwise
-      HealthCheckPath: "/health"
-      HealthCheckTimeoutSeconds: 5
-      UnhealthyThresholdCount: 2
-      HealthyThresholdCount: 2
+  # TargetGroup:
+  #   Type: AWS::ElasticLoadBalancingV2::TargetGroup
+  #   # Condition: CreateELBCondition
+  #   Properties:
+  #     TargetType: ip
+  #     Name: !Sub "${AWS::StackName}-load-balancer-tg"
+  #     Port: 80
+  #     Protocol: HTTP
+  #     VpcId: !Ref VPCID
+  #     HealthCheckIntervalSeconds: 10
+  #     # will look for a 200 status code by default unless specified otherwise
+  #     HealthCheckPath: "/health"
+  #     HealthCheckTimeoutSeconds: 5
+  #     UnhealthyThresholdCount: 2
+  #     HealthyThresholdCount: 2
 
 Outputs:
   Service:
