@@ -17,7 +17,7 @@ Parameters:
   ServiceStackName:
     Description: Name of the service stack
     Type: String
-    Default: core-service
+    Default: core-service4
 
 Resources:
   ArtifactStorage:
@@ -27,6 +27,8 @@ Resources:
 
   DockerRepo:
     Type: AWS::ECR::Repository
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       RepositoryName: !Sub "${AWS::StackName}-ecr-repo"
       RepositoryPolicyText:
@@ -190,3 +192,9 @@ Resources:
       TargetAction: Source
       TargetPipelineVersion: !GetAtt Pipeline.Version
       RegisterWithThirdParty: true
+
+Outputs:
+  DockerRepo:
+    Value: !Ref DockerRepo
+    Export:
+      Name: !Sub "${AWS::StackName}::ServiceName"

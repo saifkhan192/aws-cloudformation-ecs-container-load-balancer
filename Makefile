@@ -1,6 +1,6 @@
 createService:
 	aws cloudformation create-stack \
-	--stack-name core-service \
+	--stack-name core-service4 \
 	--template-body file://./cloudformation/service.template-01.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
@@ -10,7 +10,7 @@ createService:
 
 updateService:
 	aws cloudformation update-stack \
-	--stack-name core-service \
+	--stack-name core-service4 \
 	--template-body file://./cloudformation/service.template-01.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
@@ -21,20 +21,18 @@ updateService:
 
 createPipeline:
 	aws cloudformation create-stack \
-	--stack-name core-pipeline \
+	--stack-name core-pipeline1 \
 	--template-body file://./cloudformation/pipeline.template-02.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
-	  ParameterKey=ServiceStackName,ParameterValue=core-service \
 	  ParameterKey=RepoToken,ParameterValue=${REPO_TOKEN}
 
 updatePipeline:
 	aws cloudformation update-stack \
-	--stack-name core-pipeline \
+	--stack-name core-pipeline1 \
 	--template-body file://./cloudformation/pipeline.template-02.yaml \
 	--capabilities CAPABILITY_NAMED_IAM \
 	--parameters \
-	  ParameterKey=ServiceStackName,ParameterValue=core-service \
 	  ParameterKey=RepoToken,ParameterValue=${REPO_TOKEN}
 
 listTasks:

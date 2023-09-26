@@ -11,7 +11,7 @@ const commonOptions: DataSourceOptions = {
   database: process.env.POSTGRES_DB_NAME,
 
   entities: [__dirname + '/entity/*.{js,ts}'],
-  logging: true,
+  logging: process.env.NODE_ENV !== 'production',
   synchronize: process.env.NODE_ENV !== 'production',
 
   // migrations: ['src/migrations/**/*{.ts,.js}'],

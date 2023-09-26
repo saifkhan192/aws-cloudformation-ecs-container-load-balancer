@@ -40,7 +40,7 @@ Parameters:
     Type: String
   EcrRepository:
     Type: String
-    Default: core-deployment-ecr-repo
+    Default: core-pipeline1-ecr-repo
   QueueStackName:
     Type: String
     Default: queue-example
@@ -63,15 +63,15 @@ Parameters:
   ServiceNameBFF:
     Description: Descriptive service name (e.g. backend, frontend)
     Type: String
-    Default: backend-api-bff
+    Default: backend-api-bff4
   ServiceNameCore:
     Description: Descriptive service name (e.g. backend, frontend)
     Type: String
-    Default: backend-api-core
+    Default: backend-api-core4
   NameSpaceName:
     Description: just a common namespace
     Type: String
-    Default: backend-namespace
+    Default: backend-namespace4
 
 Conditions:
   CreateELBCondition: !Equals
@@ -104,7 +104,7 @@ Resources:
   ExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AWS::StackName}-ecs-task-role"
+      RoleName: !Sub "${AWS::StackName}-ecs-task-execution-role"
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow
@@ -221,8 +221,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: demo-app-task
-      Cpu: 256
-      Memory: 512
+      Cpu: 512
+      Memory: 1024
       # ECS uses 4 networking modes. awsvpc, bridge, host and none. None is not relevant here as there is no networking there.
       # For awsvpc, the container gets its own ENI. Which means that your container will act as a host and the port that you expose will be the port that you serve on.
       # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-networking.html
@@ -245,22 +245,27 @@ Resources:
               ],
             ]
           # EntryPoint: ["npm", "run", "start"]
-          EntryPoint: ["npm", "run", "start:ts"]
+          # EntryPoint: ["npm", "run", "start:ts"]
+          EntryPoint: [
+              "sh", "-c",
+              "echo \"entry point is starting..\" && npm run start:ts"
+          ]
           LinuxParameters:
             InitProcessEnabled: true
           ReadonlyRootFilesystem: false # allow task definition to use ECS Exec
           PortMappings:
             - ContainerPort: !Ref ContainerPort
-              Name: backend-bff #This parameter only applies to Service Connect
+              Name: !Sub "${ServiceNameBFF}-port-map" #This parameter only applies to Service Connect
           HealthCheck:
             Command:
               - CMD-SHELL
-              # - curl -s http://localhost/health
-              - echo 'dummy healthcheck1' || exit 1
-            Interval: 5
-            Timeout: 3
+              - "curl -f http://localhost/health || exit 1"
+              # - curl -f localhost/health || exit 2
+              # - echo 'dummy healthcheck1' || exit 1
+            Interval: 10
+            Timeout: 5
             Retries: 3
-            StartPeriod: 10
+            StartPeriod: 40
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -298,8 +303,8 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: demo-worker-task
-      Cpu: 256
-      Memory: 512
+      Cpu: 512
+      Memory: 1024
       NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt ExecutionRole.Arn
       TaskRoleArn: !Ref TaskRole
@@ -320,22 +325,27 @@ Resources:
               ],
             ]
           # EntryPoint: ["npm", "run", "worker:ts"]
-          EntryPoint: ["npm", "run", "start:ts"]
+          # EntryPoint: ["npm", "run", "start:ts"]
+          EntryPoint: [
+              "sh", "-c",
+              "echo \"entry point is starting..\" && npm run start:ts"
+          ]
           LinuxParameters:
             InitProcessEnabled: true
           ReadonlyRootFilesystem: false
           PortMappings:
           - ContainerPort: !Ref ContainerPort
-            Name: backend-core #This parameter only applies to Service Connect
+            Name: !Sub "${ServiceNameCore}-port-map" #This parameter only applies to Service Connect
           HealthCheck:
             Command:
               - CMD-SHELL
-              # - curl -s http://localhost/health
-              - echo 'dummy healthcheck2' || exit 1
-            Interval: 5
-            Timeout: 3
+              - "curl -f http://localhost/health || exit 1"
+              # - echo 'dummy healthcheck2' || exit 1
+              # - curl -f localhost/health || exit 2
+            Interval: 10
+            Timeout: 5
             Retries: 3
-            StartPeriod: 10
+            StartPeriod: 40
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -378,6 +388,16 @@ Resources:
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref AppDesiredCount
+      # CapacityProviderStrategy:
+      # - Base: 0
+      #   CapacityProvider: 'FARGATE'
+      #   Weight: 1
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: false
       # This may need to be adjusted if the container takes a while to start up
       # HealthCheckGracePeriodSeconds: 30
       LaunchType: FARGATE # aws will take cre of all the hardware and launching of task
@@ -408,7 +428,7 @@ Resources:
         Namespace: !Ref NameSpaceName
         Services:
           - DiscoveryName: !Join ["-", [!Ref ServiceNameBFF, "discovery-name"]] ## Avoid using the same service with Service Discovery in a namespace.
-            PortName: backend-bff
+            PortName: !Sub "${ServiceNameBFF}-port-map"
             ClientAliases:
               - Port: 80
                 DnsName: !Ref ServiceNameBFF
@@ -416,6 +436,7 @@ Resources:
         LogConfiguration:
           LogDriver: awslogs
           Options:
+            awslogs-create-group: true
             awslogs-region: !Ref AWS::Region
             awslogs-group: !Ref LogGroupServiceConnect
             awslogs-stream-prefix: !Ref ServiceNameBFF
@@ -430,6 +451,16 @@ Resources:
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinitionWorker
       DesiredCount: !Ref WorkerDesiredCount
+      # CapacityProviderStrategy:
+      # - Base: 0
+      #   CapacityProvider: 'FARGATE'
+      #   Weight: 1
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: false
       LaunchType: FARGATE # aws will take cre of all the hardware and launching of task
       NetworkConfiguration:
         AwsvpcConfiguration:
@@ -443,7 +474,7 @@ Resources:
         Namespace: !Ref NameSpaceName
         Services:
           - DiscoveryName: !Join ["-", [!Ref ServiceNameCore, "discovery-name"]] ## Avoid using the same service with Service Discovery in a namespace.
-            PortName: backend-core
+            PortName: !Sub "${ServiceNameCore}-port-map"
             ClientAliases:
               - Port: 80
                 DnsName: !Ref ServiceNameCore
@@ -451,6 +482,7 @@ Resources:
         LogConfiguration:
           LogDriver: awslogs
           Options:
+            awslogs-create-group: true
             awslogs-region: !Ref AWS::Region
             awslogs-group: !Ref LogGroupServiceConnect
             awslogs-stream-prefix: !Ref ServiceNameCore

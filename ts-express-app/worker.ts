@@ -44,6 +44,14 @@ consumer.on('processing_error', (err) => {
   console.error('processing_error:', err.message);
 });
 
+process.on('exit', () => {
+  console.log('shutting down on exit');
+});
+
+process.on('SIGINT', () => {
+  console.log('shutting down on SIGINT');
+});
+
 console.log('Consumer is starting..');
 consumer.start();
 console.log('Consumer is listening for the queue: 👍');

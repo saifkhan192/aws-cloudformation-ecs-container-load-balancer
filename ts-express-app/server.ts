@@ -73,8 +73,16 @@ const initExpressGraphql = async () => {
 };
 
 const bootstrap = async (): Promise<void> => {
-  await establishDatabaseConnection();
+  // await establishDatabaseConnection();
   initExpressGraphql();
 };
+
+process.on('exit', () => {
+  console.log('shutting down on exit');
+});
+
+process.on('SIGINT', () => {
+  console.log('shutting down on SIGINT');
+});
 
 bootstrap();

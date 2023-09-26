@@ -14,7 +14,7 @@ COPY --from=build /app/dist ./dist
 COPY package*.json ./
 RUN npm install --production
 
-EXPOSE 3000
+EXPOSE 80
 
 # this will be replaced for worker or web server
-ENTRYPOINT ["node", "server.js"]
+ENTRYPOINT ["node", "js-express-app/server.js"]

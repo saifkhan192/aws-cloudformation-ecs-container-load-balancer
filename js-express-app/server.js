@@ -19,4 +19,4 @@ app.get('/sen-event-to-bus', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`App listening at port: http://localhost:${PORT}`)
-})
+});

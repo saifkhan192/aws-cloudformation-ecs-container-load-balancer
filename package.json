@@ -1,19 +1,19 @@
 {
   "name": "express-app",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
-  "main": "dist/server.js",
   "scripts": {
     "start": "node ./js-express-app/server.js --env production",
     "worker": "export NODE_ENV=development && node --max-old-space-size=1024 ./js-express-app/worker.js",
 
-    "dev": "nodemon --config nodemon.json ts-express-app/server.ts",
     "prebuild": "tslint -c tslint.json -p tsconfig.json --fix",
     "build": "tsc",
     "prestart": "npm run build",
-    "watch:serve": "nodemon -e .ts -w ./ts-express-app -x npm run start:ts",
-    "start:ts": "ts-node --esm ./dist/server.js",
-    "worker:ts": "ts-node --esm ./dist/worker.js"
+
+    "dev": "nodemon --config nodemon.json ts-express-app/server.ts",
+
+    "start:ts": "export NODE_ENV=production && node ./dist/server.js",
+    "worker:ts": "export NODE_ENV=production && node ./dist/worker.js"
   },
   "author": "saifkhan",
   "license": "MIT",
